@@ -1,0 +1,831 @@
+---
+title: "Airbnb Anonymization"
+author: "Ahmed Al-Ali"
+date: "4/21/2021"
+output: pdf_document
+---
+Packages needed and reading in file 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reticulate)
+use_python("/Users/ahmed/Desktop/IDLE")
+#install.packages("kableExtra") REMOVE COMMENT AND FIRST CHARACTER AND RUN THIS CHUNK ONCE , THEN RE REMOVE LINE
+#install.packages("data.table")
+#install.packages("sdcMicro")
+#install.packages("randomNames") 
+#install.packages("ggpubr") 
+library(data.table)
+library(kableExtra)
+library(tidyr)
+library(digest)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(stringi)
+library(sdcMicro)
+library(randomNames)
+library(ggpubr)
+
+aibnb<-read.csv("/Users/ahmed/Documents/Penn state university/Semesters/Spring 2021/DS300/Projects/AB_NYC_2019.csv")
+```
+
+
+## Data Analysis
+
+
+Lets take a look  at the data only first couple of rows, head() command displays first 6 rows of data
+we can say that data is from a relational data base
+```{r}
+head(aibnb)
+```
+### Attributes
+As we cann see our columns are ,colnames() command displays the name of columns in a dataset
+```{r}
+colnames(aibnb)
+```
+### Data type and structure
+As we can see the main strcuture of the data set , str() command shows the column data type and bunch of values from column gives a dimension of data the the first line of output 
+```{r}
+str(aibnb)
+```
+### Summary statistics 
+Summary statistics of data set , summary() command it shows the minimum,maximum, mean , median 1st and 3rd quantile.
+```{r}
+summary(aibnb)
+```
+
+### Deal with non sense values , zeroes , NA or empty data points 
+
+
+
+```{r}
+cbind(zeroes=
+   lapply(
+     lapply(aibnb, function(x) x==0),
+     sum),
+   Nas=lapply(
+     lapply(aibnb,  is.na),
+     sum),
+   empty=lapply(
+     lapply(aibnb,function(x) x==""),
+     sum)
+   )
+```
+
+1.It seems that price ,number of reviews and availability have zero values , but we know that zero for availability and and number of reviews are meaningful meanwhile, a zero for price is meaningless ,we would remove these datapoints not to introduce errors
+
+2.Reviews per month have 10052 NA values for convienience we would replace them with zero 
+
+3.Empty values are name and host_name and last_review we would remove rows with no host and name , and change last review to NA
+
+```{r}
+
+#replace NA  values
+aibnb$reviews_per_month=replace_na(aibnb$reviews_per_month,0)
+#replace empty values 
+aibnb<-aibnb[aibnb$name!="0",]
+aibnb<-aibnb[aibnb$host_name!="0",]
+aibnb$last_review[which(aibnb$last_review == "")]<-"NA"
+#remove rows with price = 0 
+aibnb<-aibnb[aibnb$price!=0,]
+```
+
+### Descriptive 
+
+Getting descriptive statistics into a table format using my pre defined function
+```{r}
+descriptive <-function(data)
+  {
+   #creating a data frame for values 
+   descriptive_data<-data.frame(Attribute =c(),type=c(),range=c(),min=c(),max=c(),mean=c(),median=c(),categories=c())
+   
+                               
+  for(i in colnames(data))
+  { 
+    if(class(data[,i]) != "character")
+     { 
+      typetemp=class(data[,i])
+      rangetemp=(max(data[,i]) - min(data[,i]))
+      mintemp=min(data[,i])
+      maxtemp=max(data[,i])
+      meantemp=mean(data[,i])
+      mediantemp=median(data[,i])
+      
+      datatemp=data.frame(Attribute =i  ,
+                          type=typetemp,
+                          range=rangetemp,
+                          min=mintemp,
+                          max=maxtemp,
+                          mean=meantemp,
+                          median=mediantemp,
+                          categories="NA"
+                          )
+      
+      descriptive_data=rbind(datatemp,descriptive_data)
+    }
+     else
+     {
+       typetemp=class(data[,i])
+       datatemp=data.frame(Attribute =i ,
+                           type=typetemp,
+                           range= "Categorical",
+                           min="NA",
+                           max="NA",
+                           mean="NA",
+                           median="NA",
+                           categories=length(unique(data[,i]))
+                           )
+      descriptive_data=rbind(datatemp,descriptive_data)
+     }
+    
+      
+   }
+  return(descriptive_data)
+
+}
+
+descriptive(aibnb)
+```
+
+
+### Assessing outliers 
+We are plotting the outliers if there are for non-categorical columns , using our predefined function
+```{r,out.width="25%",fig.align="center"}
+plot_outlier<-function(data){
+  
+  for(i in colnames(data))
+    { 
+      if(class(data[,i]) != "character")
+      { 
+         box= boxplot(data[,i],
+                      ylab = i,
+                      main = "Boxplot of Outliers  "
+                      )
+     
+      }
+      else
+      {
+        next 
+      }
+    
+      
+    }
+}
+plot_outlier(aibnb)
+```
+As we can see from the plots in terms of data distribution calculated from the IQR of each column these points are candadite outliers but not all may pass test of checking outlines statistically 
+roughly speaking this table summaries what I think is most suitable to be classified as a unique value , so we create a data frame and assgin unique outlier values for each column to be summarized as following 
+
+Price column it seems unusual to have a price of above 6000 dollars
+Minimum nights it seems unsual to have number above 800
+reviews per month it seems unsual to have reviews above 25
+calculated host listing above 150 seems unsual 
+```{r}
+outliers<-function(data){
+  outlier=data.frame(Attribute = c() , values=c())
+ for(i in colnames(data))
+    { 
+      if((class(data[,i]) != c("character")))
+      { 
+        temp=data.frame(Attribute=i,values=NA)
+        outlier=rbind(outlier,temp)
+      }
+      else
+      {
+        next 
+      }
+    
+      
+ }
+  return(outlier)
+}
+
+out=outliers(aibnb)
+
+#price column 
+out[out$Attribute == "price",]$values<-paste(unique(as.character(aibnb[aibnb$price>6000,]$price)),sep="",collapse=",")
+#Minimum nights column 
+out[out$Attribute == "minimum_nights",]$values<-paste(unique(as.character(aibnb[aibnb$minimum_nights	>800,]$minimum_nights)),sep="",collapse=",")
+#reviews per month  column 
+out[out$Attribute == "reviews_per_month",]$values<-paste(unique(as.character(aibnb[aibnb$reviews_per_month>25,]$reviews_per_month)),sep="",collapse=",")
+#price column 
+out[out$Attribute == "calculated_host_listings_count",]$values<-paste(unique(as.character(aibnb[aibnb$calculated_host_listings_count>150,]$calculated_host_listings_count)),sep="",collapse=",")
+
+out<-out[!is.na(out$values),]
+out
+```
+
+
+### Frequencies  visualization 
+
+To visiluize frequncy we would ignore specific text woth more than 10 characters as the reviews because these are not really considered categorical variables rather than strings or text manipulation  as host_name and name and neighbourhood and last review 
+
+
+```{r,out.width="25%",fig.align="center"}
+theme_set(theme_pubr())
+
+#room type
+df <- aibnb %>%
+  group_by(room_type) %>%
+  summarise(counts = n())
+
+ggplot(df, aes(x = room_type, y = counts)) +
+  geom_bar(fill = "#0073C2FF", stat = "identity") +
+  geom_text(aes(label = counts), vjust = -0.3) + 
+  theme_pubclean()
+
+#neighbourhood 
+df <- aibnb %>%
+  group_by(neighbourhood_group) %>%
+  summarise(counts = n())
+
+ggplot(df, aes(x = neighbourhood_group, y = counts)) +
+  geom_bar(fill = "#0073C2FF", stat = "identity") +
+  geom_text(aes(label = counts), vjust = -0.3) + 
+  theme_pubclean()
+
+
+```
+### Infromative visulization 
+```{r,out.width="50%",fig.align="center"}
+ggplot(aibnb, aes(x = fct_infreq(neighbourhood_group), fill = room_type)) +
+    geom_bar() +
+    labs(title = "No. of listings by borough",
+         x = "Borough", y = "No. of listings") +
+    theme(legend.position = "bottom")
+```
+
+```{r,out.width="50%",fig.align="center"}
+aibnb%>%
+    group_by(neighbourhood) %>%
+    summarize(num_listings = n(), 
+              borough = unique(neighbourhood_group)) %>%
+    top_n(n = 10, wt = num_listings) %>%
+    ggplot(aes(x = fct_reorder(neighbourhood, num_listings), 
+               y = num_listings, fill = borough)) +
+    geom_col() +
+    coord_flip() +
+    theme(legend.position = "bottom") +
+    labs(title = "Top 10 neighborhoods by no. of listings",
+         x = "Neighborhood", y = "No. of listings")
+```
+
+```{r,out.width="50%",fig.align="center"}
+ggplot(aibnb, aes(x = room_type, y = price)) +
+    geom_violin() +
+    scale_y_log10()
+```
+
+
+### Utility to preserve after anonymization 
+
+#### Data Utility measures
+
+The main objective of k-anonymization is privacy protection; however, it is also important that the anonymized dataset should be as useful as possible. There are various k-anonymization of a given dataset, but one having the highest utility is desirable. In privacy  preserving  , a data owner does not know how the published data will be analyzed by recipients, thus the data utility is measured by the quality of the anonymized dataset. We mainly focus on information loss and data truthfulness for assessing data utility, because these can cover the entire quality of the anonymized dataset in the proposed method . Information loss refers to the amount of loss caused by generalization. Data truthfulness implies that each anonymized record corresponds to a single original record. Relocated records cannot correspond to original records; thus, they are untruthful. In privacy-preserving data publishing, it is important that a published dataset is truthful. If a published dataset is not truthful, it is difficult to use the results of the data analysis, because false results may be obtained.
+
+#### Utility criterion
+To quantify data utility, various quality metrics are proposed, such as classification metric discernibility metric (DM), loss metric (LM), and reconstruction error (RCE) . DM measures the cardinality of the equivalent class. DM considers only the number of records in the equivalent class; thus, DM does not capture information loss caused by generalization. LM can measure both the cardinality of the equivalent class and information loss. Although LM is more accurate when measuring information loss, it does not consider the data truthfulness. RCE measures the similarity between the original record and the anonymous record. This metric can reflect both information loss and data truthfulness.
+
+## Identification of Attributes
+
+```{r}
+#Table creation of attribute types as identifiers 
+Iden<-function(data){
+  Idenitty=data.frame(Attribute = c() , Type=c() ,Reason=c() )
+ for(i in colnames(data))
+    { 
+        temp=data.frame(Attribute=i,Type=NA,Reason=NA)
+        Idenitty=rbind(Idenitty,temp)
+    }
+  return(Idenitty)
+}
+
+Iden_data<-Iden(aibnb)
+
+#Function that disolays if value is unique  
+Check_uiq<-function(column){
+  
+  if(length(unique(column))==length(column))
+  {
+    ans<-" is unique identifier "
+  }
+  
+  else
+    ans<-" is not  unique identifier "
+  
+  return(ans)
+}
+```
+
+### Explicit identifiers 
+
+Potetnial EI
+
+-id                               
+-name                             
+-host_id                           
+-host_name  
+
+
+We quickly check if unique which means that if a certain column values are all different then this could be used as  explicit identifier else no
+```{r}
+id_ans<-Check_uiq(aibnb$id)
+name_ans<-Check_uiq(aibnb$name)
+hostid_ans<-Check_uiq(aibnb$host_id)
+hostname_ans<-Check_uiq(aibnb$host_name)
+
+print(paste("id",id_ans))
+print(paste("name",name_ans))
+print(paste("host_id",hostid_ans))
+print(paste("host_name",hostname_ans))
+```
+
+it seems that only id is a unique identifier because it uniquely identifies a certain data point while others are common among multiple data points or some other values as hostname has empty strings or company names rather than individual persons if it was combination of first and last that would be unique , further study leads mt to conclude that  we know that these names could easily identify a row because the text combinations is very useful so i would consider them EI too
+
+### Quasi-identifiers 
+
+potential QI 
+-neighbourhood 
+-neighbourhood_group 
+-latitude                          
+-longitude 
+  
+
+while this variables are not unique , they are very valuable to be combined with any other varaible to infer as example name could be combined with any hotel info based on some knowledge to infer about a data point , as example if we know that the person went to a host_name in a certain neigbour hood we could definately truncate the amount of information to infer , combination of any of those with any varabile below could be a candadite to have similar utility to explicit idenitfier , these are temporal  and spatial metircs
+
+### sensitive data 
+
+potetnial SD
+
+-last_review
+-room_type                      
+-price                        
+-minimum_nights
+
+
+
+Why are these attributes considered as SD , portioning my answer to two components 
+first one is considered spatial which can lead to information that indeed reveals correlation between two entities , last three attributes above are considered business inrfomation which should be protected 
+
+#### non-sensitive data
+
+potential NSD
+
+-number_of_reviews                
+-reviews_per_month              
+-calculated_host_listings_count   
+-availability_365  
+
+I consider these as NSD because the first two are similar to comparing it to political view or an opinion in other words and the rest two are facts about some sensitive data , 
+
+
+## Development of An Anonymization  Approach
+
+### Basic Concept 
+The three main goals of the proposed method are as follows, the anonymized dataset should remain  useful,  privacy-preserving, and  reliable. In other words, the anonymized dataset should not be over-generalized, and it should satisfy the privacy model (k-anonymity) and be truthful. To meet these goals, the proposed method comprises four parts,cryptographic hashing ,data masking, perturbation, and synthetic data generation, cryptographic hashing performed on unique explicit identifiers , data masking  appropriate if data privacy is your main concern. Faker is a great Python library that seamlessly facilitates this process. You can easily swap out categories, labels, and other identifiers with fake values. Faker supports creating fake names, random text, addresses, etc.... . perturbation may involve introducing laplace mechanism to alter numerical values , or synthetic value generation  we  could sample each variable from a best-fit probability distribution. This approach would mostly preserve each features original distribution and key statistics.preserve correlation between varibels hence utility preserved too 
+
+### Explicit iderntifiers 
+```{r}
+#Hash function
+hash <- function(.x, .algo = "sha256", .seed = 0, ...){
+  if (!is.atomic(.x)) stop("Vector must be an atomic vector.")
+  return(unname(vapply(.x, digest::digest, algo = .algo, seed = .seed, ...,character(1))))
+}
+```
+
+This function uses a hashing algorithm to hash inputs ,SHA-2 (Secure Hash Algorithm 2) is a set of cryptographic hash functions designed by the United States National Security Agency (NSA) and first published in 2001, the function checks if
+a column of passed data is a vector equivalent to array and then applies a digest function which hashes the inout  using cryptogrpahic hash 
+
+```{r}
+#Hashing
+aibnb_id_hash<-hash(aibnb$id)
+
+#Check
+length(na.omit(aibnb_id_hash)) == length(aibnb_id_hash)
+
+#Add
+aibnb_anon<-aibnb
+aibnb_anon$id<-aibnb_id_hash
+```
+We use the hash function to hash our id columns and then check if any value has NA which means not been hashed , checking the length of the array when we omit NA values versus original array . true means all values have been hashed successfully then we change the id columns with them 
+
+Masking and perturbation of  these non-unique explicit identifiers to hide identity of users
+```{r}
+#Function that perturbates entry 
+perturbate_string=function(column){
+  pert_l=length(column)
+  pet=character(pert_l)
+  for( i in 0:length(column)){
+    
+    pet[i]=paste0(column[i],stri_rand_strings(1, 2, pattern = "[0-9]"))
+  }
+  return(pet)
+}
+
+aibnb_anon$name<-randomNames(nrow(aibnb_anon))
+aibnb_anon$host_id<-perturbate_string(aibnb_anon$host_id)
+aibnb_anon$host_name<-NULL
+
+```
+For the name column i use the built in function to replace the names with fake genrated names , for the host id its perturbated by adding pattern of a digit at end , hotel name is not a specific unique name but a combination of text which give a lot of unique insights if text processed , so I will completley delete them 
+
+Take a look at these columns 
+```{r}
+head(aibnb_anon[,c(1,2,3)])
+```
+
+### Quasi iderntifiers
+
+
+#### neighbourhood  and neighbourhood_group 
+
+We would form generalization approach for neighbor hood to be indicated as uptown,downtown midtown  of group neighbor and then remove both columns 
+
+All main neighbors group 
+```{r}
+unique(aibnb$neighbourhood_group)
+```
+
+
+All manhattan neighbors 
+```{r}
+unique(aibnb[aibnb$neighbourhood_group=="Manhattan",]$neighbourhood)
+```
+
+All Brooklyn neighbors 
+```{r}
+unique(aibnb[aibnb$neighbourhood_group=="Brooklyn",]$neighbourhood)
+```
+
+All Queens neighbors 
+```{r}
+unique(aibnb[aibnb$neighbourhood_group=="Queens",]$neighbourhood)
+```
+All Staten island neighbors 
+```{r}
+unique(aibnb[aibnb$neighbourhood_group=="Staten Island",]$neighbourhood)
+```
+
+All Bronx neighbors 
+```{r}
+unique(aibnb[aibnb$neighbourhood_group=="Bronx",]$neighbourhood)
+```
+
+Combining both Neighborhood group and Neighbor to generalize as seen in the taximony tree 
+```{r,out.width="75%",fig.align="center"}
+include_graphics("/Users/ahmed/Desktop/Screen Shot 2021-05-07 at 2.55.21 AM.png")
+```
+
+These information are from wikipedia , Now we rencode the columns as new column named location , I believe we treat the generalization for queens we stop at h=2 of tree , Islands have no further categories so they would be kept the same , rest would be evaluated into their differennt components at h=3 except for brooklyn which would be mix of h=2 and h=3, 
+
+```{r}
+
+#Queens
+SouthQueen<-c("Jamaica","Queens Village","St. Albans","Cambria Heights","Hollis","Holliswood","Jamaica Hills","Jamaica Estates","Laurelton","Rosedale","Springfield Gardens","Howard Beach","Ozone Park","South Ozone Park","Richmond Hill","Woodhaven")
+CentralQueen<-c("Briarwood","Corona","East Elmhurst","Elmhurst","Forest Hills","Glendale","Kew Gardens","Middle Village","Ridgewood","Woodside","Rego Park","Maspeth")
+NorthQueen<-c("Astoria","Ditmars Steinway","Jackson Heights", "Long Island City","Sunnyside","Bay Terrace" ,"Bayside" , "Bellerose", "College Point" , "Little Neck","Flushing" ,"Kew Gardens Hills","Fresh Meadows","Douglaston","Whitestone")
+Rockaways<-c("Arverne","Bayswater","Belle Harbor","Breezy Point","Edgemere","Far Rockaway","Neponsit","Rockaway Beach")
+
+#Brooklyn 
+SouthBrooklyn<-c("Bergen Beach" ,"Coney Island","Brighton Beach","Manhattan Beach","Sea Gate","Sheepshead Bay","Flatlands" ,"Midwood" ,"Gravesend","Mill Basin"  )
+CentralBrooklyn<-c("Crown Heights","Flatbush","East Flatbush","Windsor Terrace","Prospect-Lefferts Gardens","Kensington")
+NorthBrooklyn<-c( "Bedford-Stuyvesant","Bushwick","Williamsburg","Greenpoint","Brooklyn Heights","Clinton Hill" ,"Downtown Brooklyn","Fort Greene","DUMBO","Prospect Heights","Vinegar Hill","Carroll Gardens","Boerum Hill","Park Slope","Columbia St" ,"Cobble Hill","Gowanus","South Slope","Red Hook" )
+SouthWestBrooklyn<-c( "Fort Hamilton" ,"Bensonhurst" ,  "Sunset Park"  , "Bay Ridge"  ,   "Borough Park"  ,"Dyker Heights", "Navy Yard", "Bath Beach"  )
+EasternBrooklyn<-c("Brownsville","Canarsie","East New York" ,"Cypress Hills")
+#Bronx 
+NorthwestBronx<-c("Belmont","Fordham","Kingsbridge","Norwood","Riverdale","Spuyten Duyvil","University Heights","North Riverdale" ,"Fieldston" , "Woodlawn")
+SouthwestBronx<-c("Concourse" ,"Highbridge" ,"Hunts Point" ,"Longwood","Morris Heights" ,"Melrose","Morrisania", "Port Morris" ,"Mott Haven" ,"Tremont" ,"Mount Hope", "Mount Eden","West Farms","Claremont Village","Concourse Village","East Morrisania" )
+NortheastBronx<-c("Allerton" ,"Bronxdale"  ,"Baychester" ,"City Island","Co-op City","Eastchester","Edenwald","Pelham Gardens","Williamsbridge" ,"Wakefield" ,"Olinville" )
+SoutheastBronx<-c("Clason Point" ,"Morris Park","Westchester Square","Pelham Bay","Unionport","Soundview" ,"Throgs Neck","Parkchester" ,"Schuylerville","Van Nest" ,"Castle Hill" )
+
+#Manhattan 
+Downtown<-c("East Village" ,"Greenwich Village","NoHo","West Village","Chinatown" ,"Financial District","Tribeca" ,"Two Bridges","Civic Center","Battery Park City","Nolita"  )
+Midtown<-c("Theater District","Midtown","Hell's Kitchen","Murray Hill","Gramercy","Stuyvesant Town"  )
+Uptown<-c("Marble Hill","Inwood","Washington Heights","Morningside Heights","Harlem","East Harlem","Upper East Side","Upper West Side" )
+BetDownMidtown<-c("Kips Bay" ,"Chelsea","Flatiron District","Lower East Side" ,"SoHo" ,"Little Italy" )
+Islands<-"Roosevelt Island"
+#Staten Island  No change 
+
+Staten<-unique(aibnb[aibnb$neighbourhood_group=="Staten Island",]$neighbourhood)
+
+
+```
+
+Now we rencode a new location column based on these places
+```{r}
+aibnb_anon$Location="NA"
+#rencode Queens
+aibnb_anon[aibnb_anon$neighbourhood_group == "Queens" & aibnb_anon$neighbourhood %in% SouthQueen,]$Location<-"SouthQueen"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Queens" & aibnb_anon$neighbourhood %in% CentralQueen,]$Location<-"CentralQueen"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Queens" & aibnb_anon$neighbourhood %in% NorthQueen,]$Location<-"NorthQueen"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Queens" & aibnb_anon$neighbourhood %in% Rockaways,]$Location<-"Rockaways"
+#rencode Brooklyn
+aibnb_anon[aibnb_anon$neighbourhood_group == "Brooklyn" & aibnb_anon$neighbourhood %in% SouthBrooklyn,]$Location<-"SouthBrooklyn"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Brooklyn" & aibnb_anon$neighbourhood %in% CentralBrooklyn,]$Location<-"CentralBrooklyn"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Brooklyn" & aibnb_anon$neighbourhood %in% NorthBrooklyn,]$Location<-"NorthBrooklyn"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Brooklyn" & aibnb_anon$neighbourhood %in% SouthWestBrooklyn,]$Location<-"SouthWestBrooklyn"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Brooklyn" & aibnb_anon$neighbourhood %in% EasternBrooklyn,]$Location<-"EasternBrooklyn"
+#rencode Bronx
+aibnb_anon[aibnb_anon$neighbourhood_group == "Bronx" & aibnb_anon$neighbourhood %in% NorthwestBronx,]$Location<-"NorthwestBronx"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Bronx" & aibnb_anon$neighbourhood %in% NortheastBronx,]$Location<-"NortheastBronx"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Bronx" & aibnb_anon$neighbourhood %in% SouthwestBronx,]$Location<-"SouthwestBronx"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Bronx" & aibnb_anon$neighbourhood %in% SoutheastBronx,]$Location<-"SoutheastBronx"
+
+#rencode Manhattan
+aibnb_anon[aibnb_anon$neighbourhood_group == "Manhattan" & aibnb_anon$neighbourhood %in% Downtown,]$Location<-"DowntownManhattan"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Manhattan" & aibnb_anon$neighbourhood %in% Midtown,]$Location<-"MidtownManhattan"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Manhattan" & aibnb_anon$neighbourhood %in% Uptown,]$Location<-"UptownManhattan"
+aibnb_anon[aibnb_anon$neighbourhood_group == "Manhattan" & aibnb_anon$neighbourhood %in% BetDownMidtown,]$Location<-"BetDownMidtownManhattan"
+#Rencode Staten
+aibnb_anon[aibnb_anon$neighbourhood_group == "Staten Island" ,]$Location<-"Staten Island"
+```
+
+Delete old columns
+```{r}
+aibnb_anon$neighbourhood=NULL
+aibnb_anon$neighbourhood_group=NULL
+```
+
+
+#### Latitude and Longitude
+
+Reducing the accuracy by scaling a location to a coarser granularity
+
+For generalization I decided to use two levels only main midpoint of nyc and Queens,Brooklyn,Bronx,Manhattan and Stane island midpoint coordinate since i already define multiple neighbor levels , note that longitude are negative suppposed to be in picture
+
+```{r,out.width="75%",fig.align="center"}
+include_graphics("/Users/ahmed/Desktop/Screen Shot 2021-05-07 at 2.43.19 PM.png")
+```
+```{r}
+#Queen Borough
+aibnb_anon[str_detect(aibnb_anon$Location,c("Queen" ,"Rock")),]$latitude=40.7282
+aibnb_anon[str_detect(aibnb_anon$Location,c("Queen" ,"Rock")),]$longitude= -73.7949
+#Brooklyn Borough
+aibnb_anon[str_detect(aibnb_anon$Location,"Brooklyn"),]$latitude=40.6782
+aibnb_anon[str_detect(aibnb_anon$Location,"Brooklyn"),]$longitude= -73.9442
+#Manhattan Borough
+aibnb_anon[str_detect(aibnb_anon$Location,"Manhattan"),]$latitude=40.8448
+aibnb_anon[str_detect(aibnb_anon$Location,"Manhattan"),]$longitude= -73.8648
+#Bronx Borough
+aibnb_anon[str_detect(aibnb_anon$Location,"Bronx"),]$latitude=40.7831
+aibnb_anon[str_detect(aibnb_anon$Location,"Bronx"),]$longitude= -73.9712
+#Stane Island Borough
+aibnb_anon[str_detect(aibnb_anon$Location,"Staten Island"),]$latitude=40.5795
+aibnb_anon[str_detect(aibnb_anon$Location,"Staten Island"),]$longitude= -74.1502
+```
+Take a look at these columns 
+```{r}
+head(aibnb_anon[,c(1,3,4,5,14)])
+```
+
+Or we can go to local generalization in which we give a range of longitude and latitude but this limits the search area in which pathway privacy would be easily breached if adversary has background knowledge because range would break the preservation we did in location attribute in which certain locations would be clearly visible if inference is made 
+
+### Potential SD
+
+
+#### Last review 
+
+Seemingly those are dates for last review i assume this is related to the user last visited time for the visited place i would aggregate the last review column to be have only year and month 
+```{r}
+aibnb_anon$last_review<-str_sub(aibnb_anon$last_review,0,7)
+```
+
+#### Room type
+
+Multivariate aggregation including weather a person get an entire home multiple times in a high end location could lead to profiling about him and his economic status as we can see that categories are Private or a shared room or a Home/Apartmant 
+
+```{r}
+unique(aibnb$room_type)
+```
+
+we aggregate the type to either be a room or an apartment 
+```{r}
+aibnb_anon[str_detect(aibnb_anon$room_type,"room"),]$room_type="Room"
+aibnb_anon[str_detect(aibnb_anon$room_type,"apt"),]$room_type="Apartment"
+```
+
+
+#### price  and  minimum nights
+
+Price and minim um noights  reveals so much information when inferred so we are going to resample according to multivariate aggregation , i will use laplace mechanism to introduce noise to the values 
+
+studying the distribution of price and minimum nights
+```{r,out.width="50%",fig.align="center"}
+qplot(aibnb$price,
+      geom="histogram",
+      binwidth = 5,  
+      main = "Histogram for Price", 
+      xlab = "Price",
+      xlim=c(0,6000),  
+      )
+
+qplot(aibnb$minimum_nights,
+      geom="histogram",
+      binwidth = 5,  
+      main = "Histogram for Min NIghts", 
+      xlab = "Nights",
+      xlim=c(0,1500),  
+      )
+
+```
+
+define laplace function
+```{r}
+#install.packages("LaplacesDemon")
+library("LaplacesDemon")
+laplace=function(n,sensitivity,epsilon){
+  
+  return (rlaplace(n,location=0,scale=sensitivity/epsilon))
+  
+}
+```
+
+Alter price values 
+```{r}
+#Values excpet outliers
+aibnb_anon[aibnb_anon$price<6000,]$price<-aibnb_anon[aibnb_anon$price<6000,]$price+laplace(nrow(aibnb_anon[aibnb_anon$price<6000,]),1,0.1)
+
+```
+
+
+
+
+
+for minimum nights we can easily get a record knowing a person length of stay so this would be transformed into lessthan , which means ill create a new cllumn that means a certain record lived less than the value it has in this column as example a value of 50 would mean the person livied less than or equal to 50 days 
+
+first we form our boundaries by counting values 
+```{r}
+unique(aibnb$minimum_nights)
+```
+it seems our range of boundary is multivariate no sepcific one 
+
+```{r}
+
+Bound1<-"[0,80]"
+Bound2<-"(80,500]"
+Bound3<-"(500,1250]"
+
+aibnb_anon$minimum_night="NA"
+aibnb_anon[aibnb_anon$minimum_nights <=80 ,]$minimum_night=Bound1
+aibnb_anon[aibnb_anon$minimum_nights >80 & aibnb_anon$minimum_nights <=500 ,]$minimum_night=Bound2
+aibnb_anon[aibnb_anon$minimum_nights >500 & aibnb_anon$minimum_nights <=1250 ,]$minimum_night=Bound3
+
+#discard original column 
+aibnb_anon$minimum_nights=NULL
+
+```
+
+
+
+### Dealing with outliers 
+
+```{r}
+#Outlier values 
+aibnb_anon[aibnb_anon$price %in% c("6500","8000","9999","10000","7703","6419","8500","7500","6800"),]
+
+#find median per location per room type 
+head(aggregate(x = aibnb_anon$price,                # Specify data column
+          by = list(aibnb_anon$room_type,aibnb_anon$Location),              # Specify group indicator
+          FUN = median))   
+```
+
+as we can see if we choose mean or mdeian values to replace we will lose a lot of utility 
+
+to get idea of where the values occur lets subset  
+```{r}
+out
+```
+price would be balanced by counterfeit records , minimum nights is handeled by introducing range values and other two would be countierfited by fake data but within same distribution to nsure utility 
+
+Adding counterfeit record with similar bur diverse outlier values so we can lower the variance 
+
+
+
+```{r}
+
+for(i in 1:3000){
+  aibnb_anon=rbind(aibnb_anon,data.frame(id=hash(sample(20000,1)+5000),
+                   name=randomNames(1),
+                   host_id=sample(500000,1)+150000,
+                   latitude=sample(c(40.6782,40.8448,40.7681,40.6782),1),
+                   longitude=sample(c(40.6782,40.8448,40.7681,40.6782),1),
+                   room_type=sample(unique(aibnb_anon$room_type),1),
+                   price=sample(c(3000:5000),1)+1500,
+                   number_of_reviews=sample(unique(aibnb_anon$number_of_reviews),1),
+                   last_review=sample(unique(aibnb_anon$last_review),1),
+                   reviews_per_month=sample(30,1)+15,
+                   calculated_host_listings_count=sample(40,1)+60,
+                   availability_365=sample(unique(aibnb_anon$availability_365),1),
+                   Location=sample(c("NorthBrooklyn","UptownManhattan","NorthQueen","BetDownMidtownManhattan","DowntownManhattan","CentralBrooklyn"),1),
+                   minimum_night=sample(unique(aibnb_anon$minimum_night),1)))
+  
+}
+
+
+
+```
+
+our counterfeit data are from row number 48884 to 51884, display ten only
+
+lets observe some 
+```{r}
+head(aibnb_anon[c(48884:51884),])
+```
+
+## Measuring data utlity 
+
+creating a utility measure table 
+```{r}
+descriptive_data_anon<-data.frame(Attribute =c(),mean=c(),variance=c(),median=c())
+for ( i in colnames(aibnb_anon)){
+  if (class(i)=="numeric"){
+        meantemp=mean(aibnb_anon[,i])
+        vartemp=var(aibnb_anon[,i])
+        medtemp=median(aibnb_anon[,i])
+        datatemp=data.frame(Attribute =i,
+                          mean=meantemp,
+                          varaince=vartemp,
+                          median=medtemp,
+                          )
+        descriptive_data_anon=rbind(descriptive_data_anon,datatemp)}
+}
+
+```
+
+### General utility measures for continuous variables
+
+Statistics: mean, covariance, correlation
+The statistics characterizing the dataset should not change after the anonymization. Examples of such statistics are the mean, variance, and covariance and correlation structure of the most important variables in the dataset. Other statistics characterizing the data include the principal components and the loadings. In order to evaluate the information loss caused by the anonymization, one should compare the appropriate statistics for continuous variables computed from the data before and after anonymization. There are several ways to evaluate the loss of utility with respect to the changes in these statistics, for instance, by comparing means and (co-)variances in the data or comparing the (multivariate) distributions of the data. Especially changes in the correlations gives valuable information on the validity of the data for regressions. 
+
+proposed are several measures for the discrepancy between the covariance and correlation matrices. These measures are based on the mean squared error, the mean absolute error or the mean variation of the individual cells these values should have minimal change as they are very importnat utility measures 
+
+
+As we can see utility hasnt change by a significant amount 
+
+
+### Visiualization before and after anonymization 
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(ggmap)
+df=aibnb
+nhd_df <- df %>%
+    group_by(neighbourhood) %>%
+    summarize(num_listings = n(),
+              median_price = median(price),
+              long = median(longitude),
+              lat = median(latitude),
+              borough = unique(neighbourhood_group))
+
+
+height <- max(df$latitude) - min(df$latitude)
+width <- max(df$longitude) - min(df$longitude)
+borders <- c(bottom  = min(df$latitude)  - 0.1 * height,
+             top     = max(df$latitude)  + 0.1 * height,
+             left    = min(df$longitude) - 0.1 * width,
+             right   = max(df$longitude) + 0.1 * width)
+
+map <- get_stamenmap(borders, zoom = 11, maptype = "toner-lite")
+ggmap(map) +
+    geom_point(data = nhd_df, mapping = aes(x = long, y = lat,
+                                            col = median_price, size = num_listings)) +
+    scale_color_gradient(low = "blue", high = "red")
+
+
+
+```
+
+### Performig query "Attacks" 
+
+We would compare getting the above 5000 price for the room
+
+from un anonmyized set
+```{r}
+head(aibnb[aibnb$price>5000,c(1,2,10)])
+
+```
+
+from  anonmyized set
+```{r}
+head(aibnb_anon[aibnb_anon$price>5000,c(1,2,7)])
+nrow(aibnb_anon[aibnb_anon$price>5000,c(1,2,7)])
+```
+as we can see the first query returns about 20 rows i used head not to display all the rows , and the same query on the anonymizaed data disaplsy about 2000 rows we hide the identity of the person we were searching for 
+
+
+
+we would consider searching for a person who lives in an apartment in NoHo in Manhattan , knowing he stayed about 14 nights and took an entire home
+
+from un anonmyized set
+```{r}
+aibnb[aibnb$neighbourhood=="NoHo" & aibnb$minimum_night == "14",c(1,2,5,6,11)]
+```
+
+from anonmyized set
+```{r}
+head(aibnb_anon[str_detect(aibnb_anon$Location,"Manhattan") & aibnb_anon$minimum_night == "[0,80]",])
+nrow(aibnb_anon[str_detect(aibnb_anon$Location,"Manhattan") & aibnb_anon$minimum_night == "[0,80]",])
+```
+As we can see querying from the un anonymized we find the person directly but the anonymized data set returns about 21k enetry if an adversary want to search fro a person he can only know which part of manhattan he lived , results of rows are displayed in n row fnction returns number of rows from query 
